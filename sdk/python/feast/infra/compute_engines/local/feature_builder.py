@@ -29,7 +29,13 @@ class LocalFeatureBuilder(FeatureBuilder):
         source = self.feature_view.batch_source
         start_time = self.task.start_time
         end_time = self.task.end_time
-        node = LocalSourceReadNode("source", source, start_time, end_time)
+        node = LocalSourceReadNode(
+            "source",
+            source,
+            start_time,
+            end_time,
+            only_latest=self.task.only_latest,
+        )
         self.nodes.append(node)
         return node
 
@@ -48,6 +54,9 @@ class LocalFeatureBuilder(FeatureBuilder):
         node.add_input(input_node)
         self.nodes.append(node)
         return node
+
+    def _should_dedupe(self, task):
+        return isinstance(task, HistoricalRetrievalTask)
 
     @staticmethod
     def _get_aggregate_operations(agg_specs):
@@ -94,6 +103,8 @@ class LocalFeatureBuilder(FeatureBuilder):
         return node
 
     def build_output_nodes(self, input_node):
-        node = LocalOutputNode("output", self.feature_view)
+        node = LocalOutputNode(
+            "output", self.feature_view, tqdm_builder=self.task.tqdm_builder
+        )
         node.add_input(input_node)
         self.nodes.append(node)

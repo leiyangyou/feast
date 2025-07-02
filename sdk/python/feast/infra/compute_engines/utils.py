@@ -11,6 +11,7 @@ def create_offline_store_retrieval_job(
     context: ExecutionContext,
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
+    only_latest: bool = False,
 ) -> RetrievalJob:
     """
     Create a retrieval job for the offline store.
@@ -26,14 +27,25 @@ def create_offline_store_retrieval_job(
     offline_store = context.offline_store
     column_info = context.column_info
     # 📥 Reuse Feast's robust query resolver
-    retrieval_job = offline_store.pull_all_from_table_or_query(
-        config=context.repo_config,
-        data_source=data_source,
-        join_key_columns=column_info.join_keys,
-        feature_name_columns=column_info.feature_cols,
-        timestamp_field=column_info.ts_col,
-        created_timestamp_column=column_info.created_ts_col,
-        start_date=start_time,
-        end_date=end_time,
-    )
-    return retrieval_job
+    if only_latest and start_time is not None and end_time is not None:
+        return offline_store.pull_latest_from_table_or_query(
+            config=context.repo_config,
+            data_source=data_source,
+            join_key_columns=column_info.join_keys,
+            feature_name_columns=column_info.feature_cols,
+            timestamp_field=column_info.ts_col,
+            created_timestamp_column=column_info.created_ts_col,
+            start_date=start_time,
+            end_date=end_time,
+        )
+    else:
+        return offline_store.pull_all_from_table_or_query(
+            config=context.repo_config,
+            data_source=data_source,
+            join_key_columns=column_info.join_keys,
+            feature_name_columns=column_info.feature_cols,
+            timestamp_field=column_info.ts_col,
+            created_timestamp_column=column_info.created_ts_col,
+            start_date=start_time,
+            end_date=end_time,
+        )

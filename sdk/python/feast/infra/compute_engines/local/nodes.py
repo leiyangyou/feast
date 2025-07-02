@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 import pyarrow as pa
+from tqdm import tqdm
 
 from feast import BatchFeatureView, StreamFeatureView
 from feast.data_source import DataSource
@@ -19,6 +20,13 @@ from feast.utils import _convert_arrow_to_proto
 
 ENTITY_TS_ALIAS = "__entity_event_timestamp"
 
+DEFAULT_BATCH_SIZE = 10_000
+
+
+def tqdm_builder(total_rows: int):
+    """Create a tqdm progress bar for batch processing."""
+    return tqdm(total=total_rows, unit="rows")
+
 
 class LocalSourceReadNode(LocalNode):
     def __init__(
@@ -27,11 +35,13 @@ class LocalSourceReadNode(LocalNode):
         source: DataSource,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
+        only_latest: bool = False,
     ):
         super().__init__(name)
         self.source = source
         self.start_time = start_time
         self.end_time = end_time
+        self.only_latest = only_latest
 
     def execute(self, context: ExecutionContext) -> ArrowTableValue:
         retrieval_job = create_offline_store_retrieval_job(
@@ -39,6 +49,7 @@ class LocalSourceReadNode(LocalNode):
             context=context,
             start_time=self.start_time,
             end_time=self.end_time,
+            only_latest=self.only_latest,
         )
         arrow_table = retrieval_job.to_arrow()
         field_mapping = context.column_info.field_mapping
@@ -212,10 +223,16 @@ class LocalValidationNode(LocalNode):
 
 class LocalOutputNode(LocalNode):
     def __init__(
-        self, name: str, feature_view: Union[BatchFeatureView, StreamFeatureView]
+        self,
+        name: str,
+        feature_view: Union[BatchFeatureView, StreamFeatureView],
+        batch_size: int = DEFAULT_BATCH_SIZE,
+        tqdm_builder: Callable[[int], tqdm] = tqdm_builder,
     ):
         super().__init__(name)
         self.feature_view = feature_view
+        self.tqdm_builder = tqdm_builder
+        self.batch_size = batch_size
 
     def execute(self, context: ExecutionContext) -> ArrowTableValue:
         input_table = self.get_single_table(context).data
@@ -232,24 +249,30 @@ class LocalOutputNode(LocalNode):
                 for entity in self.feature_view.entity_columns
             }
 
-            rows_to_write = _convert_arrow_to_proto(
-                input_table, self.feature_view, join_key_to_value_type
-            )
-
-            online_store.online_write_batch(
-                config=context.repo_config,
-                table=self.feature_view,
-                data=rows_to_write,
-                progress=lambda x: None,
-            )
+            with self.tqdm_builder(input_table.num_rows) as pbar:
+                for batch in input_table.to_batches(self.batch_size):
+                    batch_table = pa.Table.from_batches([batch])
+                    rows_to_write = _convert_arrow_to_proto(
+                        batch_table, self.feature_view, join_key_to_value_type
+                    )
+                    online_store.online_write_batch(
+                        config=context.repo_config,
+                        table=self.feature_view,
+                        data=rows_to_write,
+                        progress=lambda x: pbar.update(x),
+                    )
 
         if self.feature_view.offline:
             offline_store = context.offline_store
-            offline_store.offline_write_batch(
-                config=context.repo_config,
-                feature_view=self.feature_view,
-                table=input_table,
-                progress=lambda x: None,
-            )
+
+            with self.tqdm_builder(input_table.num_rows) as pbar:
+                for batch in input_table.to_batches(DEFAULT_BATCH_SIZE):
+                    batch_table = pa.Table.from_batches([batch])
+                    offline_store.offline_write_batch(
+                        config=context.repo_config,
+                        feature_view=self.feature_view,
+                        table=batch_table,
+                        progress=lambda x: pbar.update(x),
+                    )
 
         return input_table
