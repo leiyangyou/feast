@@ -32,7 +32,14 @@ class LocalFeatureBuilder(FeatureBuilder):
         end_time = self.task.end_time
         column_info = self.get_column_info(view)
         source = view.source
-        node = LocalSourceReadNode("source", source, column_info, start_time, end_time)
+        node = LocalSourceReadNode(
+            "source",
+            source,
+            column_info,
+            start_time,
+            end_time,
+            only_latest=self.task.only_latest,
+        )
         self.nodes.append(node)
         return node
 
@@ -100,3 +107,6 @@ class LocalFeatureBuilder(FeatureBuilder):
             alias = f"{agg.function}_{agg.column}"
             agg_ops[alias] = (agg.function, agg.column)
         return agg_ops
+
+    def _should_dedupe(self, task):
+        return isinstance(task, HistoricalRetrievalTask)
