@@ -139,12 +139,14 @@ class OnDemandFeatureView(BaseFeatureView):
             if isinstance(odfv_source, RequestSource):
                 self.source_request_sources[odfv_source.name] = odfv_source
             elif isinstance(odfv_source, FeatureViewProjection):
-                self.source_feature_view_projections[odfv_source.name] = odfv_source
+                self.source_feature_view_projections[odfv_source.name_to_use()] = (
+                    odfv_source
+                )
 
             else:
-                self.source_feature_view_projections[odfv_source.name] = (
-                    odfv_source.projection
-                )
+                self.source_feature_view_projections[
+                    odfv_source.projection.name_to_use()
+                ] = odfv_source.projection
 
         features: List[Field] = []
         self.entity_columns = []
@@ -530,7 +532,9 @@ class OnDemandFeatureView(BaseFeatureView):
         columns_to_cleanup = []
         for source_fv_projection in self.source_feature_view_projections.values():
             for feature in source_fv_projection.features:
-                full_feature_ref = f"{source_fv_projection.name}__{feature.name}"
+                full_feature_ref = (
+                    f"{source_fv_projection.name_to_use()}__{feature.name}"
+                )
                 if full_feature_ref in ibis_table.columns:
                     # Make sure the partial feature name is always present
                     ibis_table = ibis_table.mutate(
@@ -572,7 +576,9 @@ class OnDemandFeatureView(BaseFeatureView):
         columns_to_cleanup = []
         for source_fv_projection in self.source_feature_view_projections.values():
             for feature in source_fv_projection.features:
-                full_feature_ref = f"{source_fv_projection.name}__{feature.name}"
+                full_feature_ref = (
+                    f"{source_fv_projection.name_to_use()}__{feature.name}"
+                )
                 if full_feature_ref in pa_table.column_names:
                     # Make sure the partial feature name is always present
                     pa_table = pa_table.append_column(
@@ -624,7 +630,9 @@ class OnDemandFeatureView(BaseFeatureView):
         columns_to_cleanup: list[str] = []
         for source_fv_projection in self.source_feature_view_projections.values():
             for feature in source_fv_projection.features:
-                full_feature_ref = f"{source_fv_projection.name}__{feature.name}"
+                full_feature_ref = (
+                    f"{source_fv_projection.name_to_use()}__{feature.name}"
+                )
                 if full_feature_ref in feature_dict.keys():
                     # Make sure the partial feature name is always present
                     feature_dict[feature.name] = feature_dict[full_feature_ref]
@@ -709,10 +717,10 @@ class OnDemandFeatureView(BaseFeatureView):
         feature_dict = {}
         for feature_view_projection in self.source_feature_view_projections.values():
             for feature in feature_view_projection.features:
-                feature_dict[f"{feature_view_projection.name}__{feature.name}"] = (
-                    rand_dict_value.get(
-                        feature.dtype.to_value_type(), rand_missing_value
-                    )
+                feature_dict[
+                    f"{feature_view_projection.name_to_use()}__{feature.name}"
+                ] = rand_dict_value.get(
+                    feature.dtype.to_value_type(), rand_missing_value
                 )
                 feature_dict[f"{feature.name}"] = rand_dict_value.get(
                     feature.dtype.to_value_type(), rand_missing_value
